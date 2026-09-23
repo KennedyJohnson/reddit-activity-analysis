@@ -1,0 +1,4 @@
+__pycache__/
+.venv/
+# Raw personal data never gets committed
+data/
