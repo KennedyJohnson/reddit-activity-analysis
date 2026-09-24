@@ -75,19 +75,25 @@
     [fmt.format(T0.downvotes), "downvotes"],
   ].map(([v, l]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
 
-  function bars(id, labels, vals, f, opts = {}) {
-    const W = 900, H = 220, L = 48, R = 8, T = 10, B = 24;
+  // Line chart with value labels. zoom crops the y-axis to the data (tenths), otherwise it starts at 0.
+  function line(id, labels, vals, f, color, zoom) {
+    const W = 900, H = 260, L = 48, R = 20, T = 22, B = 26;
     const s = svg(id, W, H);
-    const max = opts.max || niceMax(Math.max(...vals));
-    const y = linear(0, max, H - B, T);
-    yAxis(s, y, [0, max / 2, max], L, W - R, f);
-    const bw = (W - L - R) / vals.length;
+    let lo = 0, hi = niceMax(Math.max(...vals)), ticks = [0, hi / 2, hi];
+    if (zoom) {
+      lo = Math.floor(Math.min(...vals) * 10) / 10;
+      hi = Math.ceil(Math.max(...vals) * 10) / 10;
+      ticks = [];
+      for (let t = lo; t <= hi + 1e-9; t += 0.1) ticks.push(t);
+    }
+    const y = linear(lo, hi, H - B, T);
+    const x = linear(0, vals.length - 1, L + 20, W - R - 20);
+    yAxis(s, y, ticks, L, W - R, f);
+    el("path", { d: vals.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join(""), fill: "none", stroke: color, "stroke-width": 2.5, "stroke-linejoin": "round" }, s);
     vals.forEach((v, i) => {
-      const x = L + i * bw;
-      el("rect", { x: x + bw * 0.2, y: y(v), width: bw * 0.6, height: H - B - y(v), rx: 2, fill: opts.color || "var(--s1)" }, s);
-      const hit = el("rect", { x, y: T, width: bw, height: H - B - T, fill: "transparent" }, s);
-      hover(hit, () => `<b>${labels[i]}</b><br>${opts.tip(v)}`);
-      text(s, x + bw / 2, H - 6, labels[i], { "text-anchor": "middle" });
+      el("circle", { cx: x(i), cy: y(v), r: 4.5, fill: color, stroke: "var(--surface-1)", "stroke-width": 2 }, s);
+      text(s, x(i), y(v) - 10, f(v), { "text-anchor": "middle", class: "lbl" });
+      text(s, x(i), H - 6, labels[i], { "text-anchor": "middle" });
     });
   }
 
@@ -121,16 +127,14 @@
   })();
 
   // ---- 02 upvotes per year -----------------------------------------------------
-  bars("ups", Y.index.map(String), Y.upvotes, (t) => fmt.format(t / 1000) + "k", { tip: (v) => fmt.format(v) + " upvotes" });
+  line("ups", Y.index.map(String), Y.upvotes, (t) => (t >= 1000 ? Math.round(t / 1000) + "k" : String(t)), "var(--s1)");
 
   const ratio = Y.upvotes.map((u, i) => (Y.written[i] ? u / Y.written[i] : 0));
-  bars("ratio", Y.index.map(String), ratio, (t) => fmt.format(Math.round(t)), {
-    color: "var(--s2)", tip: (v) => `${fmt.format(Math.round(v))} upvotes per post/comment`,
-  });
+  line("ratio", Y.index.map(String), ratio, (t) => fmt.format(Math.round(t)), "var(--s2)");
 
   // ---- 03 subscribed share ----------------------------------------------------
   const SB = D.subscribed;
-  bars("subs", SB.index.map(String), SB.share, (t) => pct(t), { max: 1, color: "var(--s3)", tip: (v) => pct(v) + " of upvotes" });
+  line("subs", SB.index.map(String), SB.share, (t) => pct(t), "var(--s3)", true);
 
   // ---- 04 upvotes vs writing ----------------------------------------------------
   (function mix() {
@@ -155,9 +159,10 @@
 
   // ---- findings (computed so they stay in sync with the data) ---------------
   const maxUp = Math.max(...Y.upvotes);
-  $("f-interests").innerHTML = `<b>Memes gave way to streamers, then to viral clips.</b> Memes were ${pct(share(2017, "Memes & Humor"))} of my upvotes in 2017 and ${pct(share(2024, "Memes & Humor"))} by 2024. Streamer communities rose to ${pct(peak("Streamers & YouTubers"))} around 2021, then faded, and Interesting & Viral has led since 2023.`;
+  $("f-interests").innerHTML = `<b>Memes gave way to streamers, then to viral clips.</b> Memes were ${pct(share(2017, "Memes & Humor"))} of my upvotes in 2017 and ${pct(share(2024, "Memes & Humor"))} by 2024. Streamer communities rose to ${pct(peak("Streamers & YouTubers"))} around 2021, then faded, and Interesting & Viral was the biggest category in 2023 and 2024.`;
   $("f-lurking").innerHTML = `<b>I upvoted about ${fmt.format(Math.round(T0.upvotes / T0.written))} times for every post or comment I wrote,</b> from ${fmt.format(Math.round(ratio[0]))} to 1 in 2017, when I wrote the most, to ${fmt.format(Math.round(Math.max(...ratio)))} to 1 in ${Y.index[ratio.indexOf(Math.max(...ratio))]}. I downvoted fewer than 1 time in 300. Upvotes peaked in ${Y.index[Y.upvotes.indexOf(maxUp)]} at ${fmt.format(maxUp)}.`;
-  $("f-feed").innerHTML = `<b>More of my upvotes went to subreddits I follow.</b> ${pct(SB.share[0])} in 2017, ${pct(Math.max(...SB.share))} by 2022.`;
+  const si = (y) => SB.share[SB.index.indexOf(y)], ui = (y) => Y.upvotes[Y.index.indexOf(y)];
+  $("f-feed").innerHTML = `<b>First I chose my feed, then Reddit started choosing it again.</b> In 2017 only ${pct(si(2017))} of my upvotes were in subreddits I'm subscribed to; I was mostly on the site-wide feeds. By 2022 it was ${pct(si(2022))}: my subscriptions were my feed. In 2024 it fell back to ${pct(si(2024))}, while my upvotes jumped ${pct(ui(2024) / ui(2023) - 1)} and Interesting & Viral rose to ${pct(share(2024, "Interesting & Viral"))}, its highest share in any year. That's what recommended posts from outside my subscriptions would look like, though the export doesn't mark which posts were recommended.`;
   const g = ci("Gaming");
   $("f-mix").innerHTML = `<b>I upvote viral stuff, but I write about games.</b> Gaming is ${pct(D.mix.upvotes[g])} of my upvotes but ${pct(D.mix.written[g])} of what I wrote.`;
 })();
